@@ -1,116 +1,84 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MediaPipe Finger Counter</title>
-<style>
-  body {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    font-family: Arial, sans-serif;
-    background-color: #222;
-    color: #fff;
-  }
-  video {
-    transform: scaleX(-1); /* mirror for easier tracking */
-    border: 2px solid #fff;
-    border-radius: 10px;
-  }
-  canvas {
-    position: absolute;
-  }
-  #counter {
-    margin-top: 10px;
-    font-size: 24px;
-    font-weight: bold;
-    background: rgba(0,0,0,0.5);
-    padding: 10px 20px;
-    border-radius: 10px;
-  }
-</style>
+  <meta charset="utf-8">
+  <title>Finger Counting</title>
+  <style>
+    video, canvas { 
+      transform: scaleX(-1); 
+      display: block;
+      margin: 0 auto;
+    }
+    #counter {
+      text-align: center;
+      font-size: 2em;
+      margin-top: 10px;
+    }
+  </style>
 </head>
 <body>
-<h1>MediaPipe Finger Counter</h1>
-<div style="position: relative;">
   <video id="video" width="640" height="480" autoplay muted></video>
   <canvas id="canvas" width="640" height="480"></canvas>
-</div>
-<div id="counter">Fingers: 0</div>
+  <div id="counter">Fingers: 0</div>
 
-<script type="module">
-import {Hands} from 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js';
-import {Camera} from 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js';
-import {drawConnectors, drawLandmarks} from 'https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js';
+  <!-- MediaPipe Hands -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
-const videoElement = document.getElementById('video');
-const canvasElement = document.getElementById('canvas');
-const canvasCtx = canvasElement.getContext('2d');
-const counterElement = document.getElementById('counter');
+  <script>
+    const videoElement = document.getElementById('video');
+    const canvasElement = document.getElementById('canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const counterElement = document.getElementById('counter');
 
-let lastCount = -1;
+    const hands = new Hands({locateFile: (file) => {
+      return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+    }});
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.5
+    });
 
-function countFingers(landmarks) {
-  if (!landmarks) return 0;
-  let fingers = 0;
+    hands.onResults(results => {
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-  // Thumb: compare tip with MCP joint (x-axis)
-  if (landmarks[4].x < landmarks[3].x) fingers++;
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        for (const landmarks of results.multiHandLandmarks) {
+          drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS,
+                         {color: '#00FF00', lineWidth: 2});
+          drawLandmarks(canvasCtx, landmarks, {color: '#FF0000', lineWidth: 1});
+        }
+        // Simple finger counting
+        const lm = results.multiHandLandmarks[0];
+        const fingerTips = [8, 12, 16, 20]; // tips for fingers except thumb
+        let count = 0;
+        for (let tip of fingerTips) {
+          if (lm[tip].y < lm[tip - 2].y) count++; // tip higher than pip joint
+        }
+        // Thumb
+        if (lm[4].x > lm[3].x) count++; // simple check for right hand
+        counterElement.innerText = `Fingers: ${count}`;
+      } else {
+        counterElement.innerText = 'Fingers: 0';
+      }
 
-  // Other fingers: tip vs PIP (y-axis)
-  const tips = [8, 12, 16, 20];
-  const pips = [6, 10, 14, 18];
-  for (let i = 0; i < tips.length; i++) {
-    if (landmarks[tips[i]].y < landmarks[pips[i]].y) fingers++;
-  }
-  return fingers;
-}
+      canvasCtx.restore();
+    });
 
-// Initialize MediaPipe Hands
-const hands = new Hands({locateFile: (file) => {
-  return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-}});
-hands.setOptions({
-  maxNumHands: 1,
-  modelComplexity: 1,
-  minDetectionConfidence: 0.7,
-  minTrackingConfidence: 0.7
-});
-
-hands.onResults(results => {
-  canvasCtx.save();
-  canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-  canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-    const landmarks = results.multiHandLandmarks[0];
-    drawConnectors(canvasCtx, landmarks, Hands.HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
-    drawLandmarks(canvasCtx, landmarks, {color: '#FF0000', lineWidth: 1});
-    const fingers = countFingers(landmarks);
-    counterElement.textContent = `Fingers: ${fingers}`;
-
-    // Announce only when count changes
-    if (fingers !== lastCount) {
-      lastCount = fingers;
-      const utterance = new SpeechSynthesisUtterance(fingers.toString());
-      speechSynthesis.speak(utterance);
-    }
-  } else {
-    counterElement.textContent = 'Fingers: 0';
-    lastCount = 0;
-  }
-  canvasCtx.restore();
-});
-
-// Camera setup
-const camera = new Camera(videoElement, {
-  onFrame: async () => {
-    await hands.send({image: videoElement});
-  },
-  width: 640,
-  height: 480
-});
-camera.start();
-</script>
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await hands.send({image: videoElement});
+      },
+      width: 640,
+      height: 480
+    });
+    camera.start();
+  </script>
 </body>
 </html>
+
