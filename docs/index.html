@@ -1,45 +1,41 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Finger Counting</title>
+  <meta charset="UTF-8">
+  <title>Finger Counting with MediaPipe</title>
   <style>
-    video, canvas { 
-      transform: scaleX(-1); 
-      display: block;
-      margin: 0 auto;
-    }
-    #counter {
-      text-align: center;
-      font-size: 2em;
-      margin-top: 10px;
-    }
+    body { display: flex; flex-direction: column; align-items: center; font-family: sans-serif; background: #222; color: #fff; }
+    video, canvas { border: 2px solid #fff; border-radius: 10px; margin-top: 20px; }
+    #counter { font-size: 2em; margin-top: 20px; }
   </style>
 </head>
 <body>
-  <video id="video" width="640" height="480" autoplay muted></video>
-  <canvas id="canvas" width="640" height="480"></canvas>
+  <h1>Finger Counting</h1>
+  <video class="input_video" autoplay muted playsinline width="640" height="480"></video>
+  <canvas class="output_canvas" width="640" height="480"></canvas>
   <div id="counter">Fingers: 0</div>
 
   <!-- MediaPipe Hands -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
   <script>
-    const videoElement = document.getElementById('video');
-    const canvasElement = document.getElementById('canvas');
+    const videoElement = document.querySelector('.input_video');
+    const canvasElement = document.querySelector('.output_canvas');
     const canvasCtx = canvasElement.getContext('2d');
     const counterElement = document.getElementById('counter');
+    let lastCount = -1;
 
-    const hands = new Hands({locateFile: (file) => {
-      return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-    }});
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
     hands.setOptions({
       maxNumHands: 1,
       modelComplexity: 1,
       minDetectionConfidence: 0.7,
-      minTrackingConfidence: 0.5
+      minTrackingConfidence: 0.7
     });
 
     hands.onResults(results => {
@@ -47,33 +43,34 @@
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
+      let count = 0;
       if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        for (const landmarks of results.multiHandLandmarks) {
-          drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS,
-                         {color: '#00FF00', lineWidth: 2});
-          drawLandmarks(canvasCtx, landmarks, {color: '#FF0000', lineWidth: 1});
-        }
-        // Simple finger counting
         const lm = results.multiHandLandmarks[0];
-        const fingerTips = [8, 12, 16, 20]; // tips for fingers except thumb
-        let count = 0;
+        drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
+        drawLandmarks(canvasCtx, lm, {color: '#FF0000', lineWidth: 1});
+
+        const fingerTips = [8, 12, 16, 20]; // index, middle, ring, pinky
         for (let tip of fingerTips) {
-          if (lm[tip].y < lm[tip - 2].y) count++; // tip higher than pip joint
+          if (lm[tip].y < lm[tip - 2].y) count++;
         }
-        // Thumb
-        if (lm[4].x > lm[3].x) count++; // simple check for right hand
-        counterElement.innerText = `Fingers: ${count}`;
-      } else {
-        counterElement.innerText = 'Fingers: 0';
+        // Thumb check
+        if (lm[4].x < lm[3].x) count++; // adjust for left/right hand if needed
+      }
+
+      counterElement.innerText = `Fingers: ${count}`;
+
+      // Speak only if count changes
+      if (count !== lastCount) {
+        lastCount = count;
+        const utter = new SpeechSynthesisUtterance(`${count} fingers`);
+        window.speechSynthesis.speak(utter);
       }
 
       canvasCtx.restore();
     });
 
     const camera = new Camera(videoElement, {
-      onFrame: async () => {
-        await hands.send({image: videoElement});
-      },
+      onFrame: async () => { await hands.send({image: videoElement}); },
       width: 640,
       height: 480
     });
@@ -81,4 +78,5 @@
   </script>
 </body>
 </html>
+
 
